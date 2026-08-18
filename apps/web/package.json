@@ -9,20 +9,26 @@
         "build": "bunx --bun vite build",
         "build:bili": "bunx --bun vite build --config vite.config.bili.ts",
         "preview": "bunx --bun vite preview",
+        "tauri": "tauri",
+        "dev:tauri": "vite --port 1420 --strictPort",
+        "build:tauri": "vite build",
+        "dev:desktop": "tauri dev",
+        "build:desktop": "tauri build",
         "lint": "bunx --bun eslint",
         "test": "bunx --bun vitest"
     },
     "dependencies": {
         "@remake/data": "workspace:*",
         "@remake/hooks": "workspace:*",
-        "@remake/vitex": "workspace:*",
         "@remake/thirdparty-bili-toy": "workspace:*",
+        "@remake/vitex": "workspace:*",
         "jotai": "^2.20.2",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "react-hot-toast": "^2.6.0"
     },
     "devDependencies": {
+        "@tauri-apps/cli": "^2.11.4",
         "@types/react": "^19.2.18",
         "@types/react-dom": "^19.2.4",
         "@vitejs/plugin-react": "^6.0.5",

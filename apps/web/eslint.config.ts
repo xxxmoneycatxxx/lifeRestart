@@ -5,7 +5,7 @@ import defaultConfig from '../../eslint.config.ts'
 
 export default defineConfig([
     defaultConfig,
-    { ignores: ['dist/**', 'node_modules/**'] },
+    { ignores: ['dist/**', 'node_modules/**', 'src-tauri/**'] },
     {
         ...react.configs.flat.recommended!,
         settings: { react: { version: '19' } },

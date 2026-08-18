@@ -188,6 +188,9 @@ export function lowestProperties(a: Properties, b?: Properties): Properties {
     return result
 }
 
+// Set.prototype.union requires Chromium 122+, use spread instead
+const union = <T>(a: Set<T>, b: Set<T>) => new Set([...a, ...b])
+
 export function nextProfile(
     profile: ProfileState,
     state: GameState,
@@ -195,9 +198,9 @@ export function nextProfile(
 ) {
     return {
         times: profile.times + 1,
-        talents: profile.talents.union(state.talents),
-        events: profile.events.union(state.events),
-        achievements: profile.achievements.union(state.achievements),
+        talents: union(profile.talents, state.talents),
+        events: union(profile.events, state.events),
+        achievements: union(profile.achievements, state.achievements),
         highest: highestProperties(state.props.highest, profile.highest),
         lowest: lowestProperties(state.props.lowest, profile.lowest),
         locked,

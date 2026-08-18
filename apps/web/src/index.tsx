@@ -1,3 +1,4 @@
+import './polyfill'
 import { createRoot } from 'react-dom/client'
 import { StrictMode } from 'react'
 import { Game } from './Game'

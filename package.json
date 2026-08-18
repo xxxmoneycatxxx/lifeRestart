@@ -7,6 +7,8 @@
     "dev": "pnpm --filter @remake/web dev",
     "dev:prod": "pnpm --filter @remake/web dev:prod",
     "build:web": "pnpm --filter @remake/web build",
+    "build:desktop": "pnpm build:data && pnpm --filter @remake/web build:desktop",
+    "dev:desktop": "pnpm build:data && pnpm --filter @remake/web dev:desktop",
     "build:data": "pnpm --filter @remake/data build",
     "preview": "pnpm --filter @remake/web preview",
     "start": "pnpm --filter @remake/console start",

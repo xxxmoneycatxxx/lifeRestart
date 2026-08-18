@@ -8,7 +8,8 @@ import type { TriggerResult } from './game'
 
 const Grades: TalentGrade[] = [0, 1, 2, 3] as const
 const GradeMap = Map.groupBy(
-    talents.keys().filter(t => !talents.get(t)!.exclusive),
+    // Spread to Array first: iterator helpers (e.g. MapIterator.filter) require Chromium 122+
+    [...talents.keys()].filter(t => !talents.get(t)!.exclusive),
     t => talents.get(t)!.grade,
 )
 
