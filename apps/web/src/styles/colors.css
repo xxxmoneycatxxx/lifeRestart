@@ -14,6 +14,10 @@
     --color-error: light-dark(#e42b2b, #ff6969);
     --color-primary: var(--color-success);
     --color-secondary: var(--color-info);
+
+    /* Pre-computed color-mix(in srgb, var 30%, background) for Ch < 111 fallback */
+    --color-success-30: light-dark(#cae4ad, #445a2e);
+    --color-error-30: light-dark(#f1baba, #592d2e);
 }
 
 .grade-0 { --grade-color: var(--color-grade-0); }

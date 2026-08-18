@@ -1,6 +1,6 @@
 .achv-toast-container {
     position: fixed;
-    width: min(calc(100dvw - 2rem), 48rem);
+    width: min(calc(100vw - 2rem), 48rem);
     top: 6rem;
     left: 1rem;
     pointer-events: none;

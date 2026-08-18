@@ -1,5 +1,5 @@
 .screen.play {
-    height: calc(100dvh - 2rem);
+    height: calc(100vh - 2rem);
     gap: 1rem;
     > ul.properties {
         display: flex;
@@ -144,19 +144,31 @@
 }
 
 @keyframes flash-success-odd {
-    0% { background-color: color-mix(in srgb, var(--color-success) 30%, var(--base-background-color)); }
+    0% { 
+        background-color: var(--color-success-30); /* fallback for Ch < 111 */
+        background-color: color-mix(in srgb, var(--color-success) 30%, var(--base-background-color));
+    }
     100% { background-color: var(--base-background-color); }
 }
 @keyframes flash-success-even {
-    0% { background-color: color-mix(in srgb, var(--color-success) 30%, var(--base-background-color)); }
+    0% { 
+        background-color: var(--color-success-30);
+        background-color: color-mix(in srgb, var(--color-success) 30%, var(--base-background-color));
+    }
     100% { background-color: var(--base-background-color); }
 }
 @keyframes flash-error-odd {
-    0% { background-color: color-mix(in srgb, var(--color-error) 30%, var(--base-background-color)); }
+    0% { 
+        background-color: var(--color-error-30);
+        background-color: color-mix(in srgb, var(--color-error) 30%, var(--base-background-color));
+    }
     100% { background-color: var(--base-background-color); }
 }
 @keyframes flash-error-even {
-    0% { background-color: color-mix(in srgb, var(--color-error) 30%, var(--base-background-color)); }
+    0% { 
+        background-color: var(--color-error-30);
+        background-color: color-mix(in srgb, var(--color-error) 30%, var(--base-background-color));
+    }
     100% { background-color: var(--base-background-color); }
 }
 @keyframes triangle-pop {

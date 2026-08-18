@@ -1,6 +1,6 @@
 .screen.achv {
-    height: calc(100dvh - 2rem);
-    width: min(calc(100dvw - 2rem), 48rem);
+    height: calc(100vh - 2rem);
+    width: min(calc(100vw - 2rem), 48rem);
     gap: 1rem;
     > .stats {
         > .details {
