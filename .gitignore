@@ -111,3 +111,9 @@ __localStorage.json
 
 template/public
 public/data
+
+# pnpm store cache
+.pnpm-store/
+
+# Tauri generated Android build files
+apps/web/src-tauri/gen/
