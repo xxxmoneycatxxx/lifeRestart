@@ -23,6 +23,18 @@ param(
 $ErrorActionPreference = 'Continue'
 Set-Location $PSScriptRoot
 
+# Run a native command, merging stderr into stdout to avoid
+# PowerShell treating stderr as error records (especially when
+# invoked via powershell -File from another process)
+function Invoke-Native {
+    $cmd = $args[0]
+    $cmdArgs = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
+    # Build a cmd /c command string with 2>&1 to merge stderr into stdout
+    $argStr = ($cmdArgs | ForEach-Object { if ($_ -match ' ') { "`"$_`"" } else { $_ } }) -join ' '
+    $fullCmd = if ($argStr) { "$cmd $argStr" } else { $cmd }
+    & cmd /c "$fullCmd 2>&1"
+}
+
 # ============================================================
 #  Architecture mappings
 # ============================================================
@@ -236,11 +248,13 @@ if (-not (Test-Path $keystore)) {
 Write-Host '  Syncing Android project signing config...'
 $resolved = Resolve-Path $keystore -ErrorAction SilentlyContinue
 $ksAbs = if ($resolved) { $resolved.Path } else { $keystore }
+# Java Properties treats '\' as escape chars, so use '/' in paths
+$ksAbsJava = $ksAbs.Replace('\', '/')
 @(
     "storePassword=lr2024sign",
     "keyAlias=liferestart",
     "keyPassword=lr2024sign",
-    "storeFile=$ksAbs"
+    "storeFile=$ksAbsJava"
 ) | Set-Content $androidKeyProps
 
 # ============================================================
@@ -323,7 +337,7 @@ if ($Arch -eq 'all') {
         try {
             $cargoArgs = @('build', '--lib', '--target', $triple)
             if ($modeFlag) { $cargoArgs += $modeFlag }
-            & cargo @cargoArgs
+            Invoke-Native cargo @cargoArgs
             if ($LASTEXITCODE -ne 0) { Write-Error "Cargo build failed for $triple"; exit 1 }
         } finally { Pop-Location }
     }
@@ -342,7 +356,7 @@ if ($Arch -eq 'all') {
     try {
         $cargoArgs = @('build', '--lib', '--target', $info.RustTriple)
         if ($modeFlag) { $cargoArgs += $modeFlag }
-        & cargo @cargoArgs
+        Invoke-Native cargo @cargoArgs
         if ($LASTEXITCODE -ne 0) { Write-Error 'Cargo build failed.'; exit 1 }
     } finally { Pop-Location }
     $destDir = Join-Path $jniLibs $info.JniDir
@@ -369,7 +383,7 @@ for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
     Push-Location $androidDir
     try {
         $gradleArgs = @($gradleTask) + $rustExclude
-        & cmd /c "gradlew.bat $gradleArgs"
+        Invoke-Native cmd /c "gradlew.bat $gradleArgs"
         if ($LASTEXITCODE -eq 0) { break }
     } finally { Pop-Location }
 
