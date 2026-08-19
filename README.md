@@ -76,7 +76,10 @@ pnpm build:web
 # 桌面版本（Windows 免安装 exe）
 pnpm build:desktop
 # 或直接运行
-build.bat
+.\build.ps1
+
+# Android APK
+.\build-apk.ps1 -BuildMode debug -Arch arm64
 ```
 
 构建产物位于 `dist/` 目录。
