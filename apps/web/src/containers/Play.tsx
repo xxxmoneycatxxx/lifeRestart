@@ -153,8 +153,12 @@ export function Play() {
     const gotoSummary = useGotoSummary()
     const handleNext = useCallback(() => {
         if (ended) return
-        const achievements = next()
-        toastAchvs(achievements)
+        try {
+            const achievements = next()
+            toastAchvs(achievements)
+        } catch (e) {
+            console.error('Unexpected error in game loop:', e)
+        }
     }, [ended, next])
     const handleGotoSummary = useCallback(() => {
         if (!ended) return

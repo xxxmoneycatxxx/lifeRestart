@@ -58,10 +58,13 @@ export function next(
     })
     const age = s.props.current.age
     const tr = ttr(s, profile, rng)
-    const events = ages
-        .get(age)!
-        .event.filter(([e]) => ec(e, tr.state, profile))
-    const event = pickWeight(events, rng)!
+    const ageData = ages.get(age)
+    // 防御性处理：若该年龄无事件池数据，或所有事件条件均不满足（如复活后
+    // 缺少修仙前置事件），则直接触发自然死亡事件 10000，避免空事件池崩溃
+    const events = ageData
+        ? ageData.event.filter(([e]) => ec(e, tr.state, profile))
+        : []
+    const event = pickWeight(events, rng) ?? 10000
     const er = etr(event, tr.state, profile)
     const ar = atr(Ao.Trajectory, er.state, profile)
     const end = ar.state.life < 1
