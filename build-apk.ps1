@@ -3,7 +3,7 @@
 .SYNOPSIS
     LifeRestart Android (Tauri) APK build script
 .DESCRIPTION
-    Builds Android APK via Cargo + Gradle (bypasses Tauri CLI symlink issues on Windows).
+    Builds Android APK via Tauri CLI (`tauri android build`).
     Usage:  .\build-apk.ps1 [-BuildMode debug|release] [-Arch arm64|arm|x86|x86_64|all] [-AutoConfirm]
     Arguments can be in any order.
     Output: dist\*.apk
@@ -23,27 +23,25 @@ param(
 $ErrorActionPreference = 'Continue'
 Set-Location $PSScriptRoot
 
-# Run a native command, merging stderr into stdout to avoid
-# PowerShell treating stderr as error records (especially when
-# invoked via powershell -File from another process)
-function Invoke-Native {
-    $cmd = $args[0]
-    $cmdArgs = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
-    # Build a cmd /c command string with 2>&1 to merge stderr into stdout
-    $argStr = ($cmdArgs | ForEach-Object { if ($_ -match ' ') { "`"$_`"" } else { $_ } }) -join ' '
-    $fullCmd = if ($argStr) { "$cmd $argStr" } else { $cmd }
-    & cmd /c "$fullCmd 2>&1"
+# ============================================================
+#  Build step timer
+# ============================================================
+$script:timings = [System.Collections.ArrayList]::new()
+function Measure-BuildStep {
+    param([string]$Name, [scriptblock]$Action)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $result = & $Action
+    $sw.Stop()
+    $elapsed = '{0:N1}s' -f $sw.Elapsed.TotalSeconds
+    Write-Host "  [timer] ${Name}: $elapsed" -ForegroundColor DarkGray
+    [void]$script:timings.Add([PSCustomObject]@{ Step = $Name; Seconds = $sw.Elapsed.TotalSeconds })
+    return $result
 }
+$totalSw = [System.Diagnostics.Stopwatch]::StartNew()
 
 # ============================================================
 #  Architecture mappings
 # ============================================================
-$ArchMap = @{
-    'arm64'   = @{ RustTriple = 'aarch64-linux-android';   JniDir = 'arm64-v8a';    GradleName = 'Arm64' }
-    'arm'     = @{ RustTriple = 'armv7-linux-androideabi';  JniDir = 'armeabi-v7a';  GradleName = 'Arm' }
-    'x86'     = @{ RustTriple = 'i686-linux-android';       JniDir = 'x86';          GradleName = 'X86' }
-    'x86_64'  = @{ RustTriple = 'x86_64-linux-android';     JniDir = 'x86_64';       GradleName = 'X86_64' }
-}
 $AllTriples = @('aarch64-linux-android', 'armv7-linux-androideabi', 'i686-linux-android', 'x86_64-linux-android')
 
 # ============================================================
@@ -77,6 +75,16 @@ if (-not (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {
     }
 }
 
+# Auto-detect Node.js if hardcoded path is stale
+if (-not (Test-Path (Join-Path $env:NODE_HOME 'node.exe'))) {
+    $foundNode = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -Directory -Filter 'node-v*' -ErrorAction SilentlyContinue |
+                 Where-Object { Test-Path (Join-Path $_.FullName 'node.exe') } | Select-Object -First 1
+    if ($foundNode) {
+        $env:NODE_HOME = $foundNode.FullName
+        $env:PATH = "$env:NODE_HOME;$env:PATH"
+    }
+}
+
 # ============================================================
 #  Pre-flight checks
 # ============================================================
@@ -92,7 +100,8 @@ Assert-Command pnpm  'Install it first: npm i -g pnpm'
 Assert-Command cargo 'Install Rust first: https://rustup.rs'
 
 # Ensure Rust Android targets are installed
-$targetTriples = if ($Arch -eq 'all') { $AllTriples } else { $ArchMap[$Arch].RustTriple }
+$archToTriple = @{ 'arm64' = 'aarch64-linux-android'; 'arm' = 'armv7-linux-androideabi'; 'x86' = 'i686-linux-android'; 'x86_64' = 'x86_64-linux-android' }
+$targetTriples = if ($Arch -eq 'all') { $AllTriples } else { @($archToTriple[$Arch]) }
 foreach ($triple in $targetTriples) {
     & rustup target add $triple 2>&1 | Out-Null
 }
@@ -170,7 +179,7 @@ function Install-AndroidSdk {
 
     $sdkMgr = Join-Path $cmdDir 'latest\bin\sdkmanager.bat'
     Write-Host '  Installing SDK components ...'
-    & $sdkMgr 'platform-tools' 'build-tools;34.0.0' 'platforms;android-34' --no_https 2>&1 | Out-Null
+    & $sdkMgr 'platform-tools' 'build-tools;34.0.0' 'platforms;android-36' --no_https 2>&1 | Out-Null
 
     Write-Host "  Installing NDK $NDK_VERSION ..."
     & $sdkMgr "ndk;$NDK_VERSION" --no_https 2>&1 | Out-Null
@@ -206,7 +215,7 @@ if (Test-Path $sdkMgr) {
     }
     if (-not (Test-Path (Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'))) {
         Write-Host '  Installing SDK components ...'
-        & $sdkMgr 'platform-tools' 'build-tools;34.0.0' 'platforms;android-34' --no_https 2>&1 | Out-Null
+        & $sdkMgr 'platform-tools' 'build-tools;34.0.0' 'platforms;android-36' --no_https 2>&1 | Out-Null
     }
     if (-not (Test-Path (Join-Path $env:NDK_HOME 'source.properties'))) {
         if (Test-Path $env:NDK_HOME) { Remove-Item $env:NDK_HOME -Recurse -Force -ErrorAction SilentlyContinue }
@@ -222,10 +231,11 @@ Write-Host '============================================' -ForegroundColor Cyan
 Write-Host " LifeRestart APK Build  [$BuildMode] [$Arch]" -ForegroundColor Cyan
 Write-Host '============================================' -ForegroundColor Cyan
 
-# ============================================================
-#  Signing keystore
-# ============================================================
-$signingDir = Join-Path $PSScriptRoot 'signing'
+Measure-BuildStep 'Keystore & signing' {
+    # ============================================================
+    #  Signing keystore
+    # ============================================================
+    $signingDir = Join-Path $PSScriptRoot 'signing'
 $keystore   = Join-Path $signingDir 'liferestart.keystore'
 $signProps  = Join-Path $signingDir 'keystore.properties'
 $androidKeyProps = Join-Path $PSScriptRoot 'apps\web\src-tauri\gen\android\app\key.properties'
@@ -256,10 +266,21 @@ $ksAbsJava = $ksAbs.Replace('\', '/')
     "keyPassword=lr2024sign",
     "storeFile=$ksAbsJava"
 ) | Set-Content $androidKeyProps
+} # end Measure-BuildStep
+
+Measure-BuildStep 'Install deps' {
+    # Ensure dependencies are installed
+    if (-not (Test-Path 'node_modules')) {
+        Write-Host '  Installing dependencies (pnpm install)...' -ForegroundColor Cyan
+        & pnpm install
+        if ($LASTEXITCODE -ne 0) { Write-Error 'pnpm install failed.'; exit 1 }
+    }
+} # end Measure-BuildStep
 
 # ============================================================
 #  Step 1: Build game data
 # ============================================================
+Measure-BuildStep 'Build data' {
 Write-Host "`n[1/3] Building game data..." -ForegroundColor Cyan
 if (Test-Path 'packages\data\dist\achievement.ts') {
     Write-Host '  > Data already built, skipping...'
@@ -275,159 +296,72 @@ if (Test-Path 'packages\data\dist\achievement.ts') {
         } finally { Pop-Location }
     }
 }
+} # end Measure-BuildStep
 
 # ============================================================
-#  Step 2: Build frontend
+#  Step 2: Ensure Tauri Android project is initialized
 # ============================================================
-Write-Host "[2/3] Building frontend (vite)..." -ForegroundColor Cyan
-& pnpm --filter @remake/web build:tauri
-if ($LASTEXITCODE -ne 0) { Write-Error 'Frontend build failed.'; exit 1 }
-
-# Ensure Tauri Android project is initialized
+Measure-BuildStep 'Android init' {
+Write-Host "[2/3] Checking Tauri Android project..." -ForegroundColor Cyan
 if (-not (Test-Path 'apps\web\src-tauri\gen\android')) {
     Write-Host '  Initializing Tauri Android project...'
     & pnpm --filter @remake/web exec tauri android init
     if ($LASTEXITCODE -ne 0) { Write-Error 'Tauri android init failed.'; exit 1 }
 }
 
-# ============================================================
-#  Configure Cargo linker for Android cross-compilation
-# ============================================================
-$ndkToolchain = (Join-Path $env:ANDROID_HOME "ndk\$NDK_VERSION\toolchains\llvm\prebuilt\windows-x86_64\bin") -replace '\\', '/'
-$cargoConfigDir = Join-Path $PSScriptRoot 'apps\web\src-tauri\.cargo'
-if (-not (Test-Path $cargoConfigDir)) { New-Item -ItemType Directory -Path $cargoConfigDir -Force | Out-Null }
-
-$cargoConfig = @"
-[target.aarch64-linux-android]
-linker = "$ndkToolchain/clang.exe"
-rustflags = ["-C", "link-arg=--target=aarch64-linux-android21"]
-
-[target.armv7-linux-androideabi]
-linker = "$ndkToolchain/clang.exe"
-rustflags = ["-C", "link-arg=--target=armv7a-linux-androideabi21"]
-
-[target.i686-linux-android]
-linker = "$ndkToolchain/clang.exe"
-rustflags = ["-C", "link-arg=--target=i686-linux-android21"]
-
-[target.x86_64-linux-android]
-linker = "$ndkToolchain/clang.exe"
-rustflags = ["-C", "link-arg=--target=x86_64-linux-android21"]
-"@
-Set-Content (Join-Path $cargoConfigDir 'config.toml') $cargoConfig
-
-# ============================================================
-#  Step 3: Compile Rust + Build APK via Gradle
-# ============================================================
-Write-Host "[3/3] Building APK..." -ForegroundColor Cyan
-
-$cargoDir  = if ($BuildMode -eq 'debug') { 'debug' } else { 'release' }
-$modeFlag  = if ($BuildMode -eq 'release') { '--release' } else { '' }
-$gradleTask = if ($BuildMode -eq 'debug') { 'assembleDebug' } else { 'assembleRelease' }
-
-$jniLibs = Join-Path $PSScriptRoot 'apps\web\src-tauri\gen\android\app\src\main\jniLibs'
-$srcTauri = Join-Path $PSScriptRoot 'apps\web\src-tauri'
-
-# ---- 3a: Compile Rust for Android target(s) ----
-if ($Arch -eq 'all') {
-    Write-Host '  Compiling Rust for all Android architectures...'
-    foreach ($triple in $AllTriples) {
-        Write-Host "    [cargo] $triple ..."
-        Push-Location $srcTauri
-        try {
-            $cargoArgs = @('build', '--lib', '--target', $triple)
-            if ($modeFlag) { $cargoArgs += $modeFlag }
-            Invoke-Native cargo @cargoArgs
-            if ($LASTEXITCODE -ne 0) { Write-Error "Cargo build failed for $triple"; exit 1 }
-        } finally { Pop-Location }
-    }
-    # Copy all .so files to jniLibs
-    $abiMap = @{ 'aarch64-linux-android' = 'arm64-v8a'; 'armv7-linux-androideabi' = 'armeabi-v7a'; 'i686-linux-android' = 'x86'; 'x86_64-linux-android' = 'x86_64' }
-    foreach ($entry in $abiMap.GetEnumerator()) {
-        $destDir = Join-Path $jniLibs $entry.Value
-        if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-        $src = Join-Path $srcTauri "target\$($entry.Key)\$cargoDir\libliferestart_desktop_lib.so"
-        Copy-Item $src $destDir -Force
-    }
-} else {
-    $info = $ArchMap[$Arch]
-    Write-Host "  Compiling Rust for $($info.RustTriple)..."
-    Push-Location $srcTauri
-    try {
-        $cargoArgs = @('build', '--lib', '--target', $info.RustTriple)
-        if ($modeFlag) { $cargoArgs += $modeFlag }
-        Invoke-Native cargo @cargoArgs
-        if ($LASTEXITCODE -ne 0) { Write-Error 'Cargo build failed.'; exit 1 }
-    } finally { Pop-Location }
-    $destDir = Join-Path $jniLibs $info.JniDir
-    if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-    $src = Join-Path $srcTauri "target\$($info.RustTriple)\$cargoDir\libliferestart_desktop_lib.so"
-    Copy-Item $src $destDir -Force
-}
-
-# ---- 3b: Build APK via Gradle (bypasses Tauri CLI symlink step) ----
-# Exclude ALL Rust plugin tasks (we already compiled + copied .so manually)
-$rustExclude = @()
-foreach ($name in @('Arm64', 'Arm', 'X86', 'X86_64')) {
-    $rustExclude += '-x'; $rustExclude += "rustBuild${name}Debug"
-    if ($BuildMode -eq 'release') {
-        $rustExclude += '-x'; $rustExclude += "rustBuild${name}Release"
+# Patch MainActivity.kt to disable edge-to-edge (Tauri 2 template enables it by default,
+# but it causes layout issues on Android WebView where env(safe-area-inset-*) is unreliable)
+$mainActivity = Join-Path $PSScriptRoot 'apps\web\src-tauri\gen\android\app\src\main\java\io\syaro\liferestart\MainActivity.kt'
+if (Test-Path $mainActivity) {
+    $content = Get-Content $mainActivity -Raw -Encoding UTF8
+    if ($content -match 'enableEdgeToEdge') {
+        $content = $content -replace 'import androidx\.activity\.enableEdgeToEdge\s*', ''
+        $content = $content -replace '\s*enableEdgeToEdge\(\)', ''
+        [System.IO.File]::WriteAllText($mainActivity, $content, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host '  Patched MainActivity.kt: disabled enableEdgeToEdge()'
     }
 }
+} # end Measure-BuildStep
 
-$androidDir = Join-Path $PSScriptRoot 'apps\web\src-tauri\gen\android'
-$maxRetries = 5
+# ============================================================
+#  Step 3: Build APK via Tauri CLI
+# ============================================================
+Write-Host "[3/3] Building APK via tauri android build..." -ForegroundColor Cyan
 
-for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-    Write-Host "  Gradle $gradleTask (attempt $attempt/$maxRetries)..."
-    Push-Location $androidDir
-    try {
-        $gradleArgs = @($gradleTask) + $rustExclude
-        Invoke-Native cmd /c "gradlew.bat $gradleArgs"
-        if ($LASTEXITCODE -eq 0) { break }
-    } finally { Pop-Location }
+# Map arch to Tauri target
+$targetMap = @{ 'arm64' = 'aarch64'; 'arm' = 'armv7'; 'x86' = 'i686'; 'x86_64' = 'x86_64' }
 
-    if ($attempt -ge $maxRetries) {
-        Write-Error "[ERROR] Build failed after $maxRetries attempts."
-        exit 1
-    }
+Measure-BuildStep 'Tauri Android build' {
+# Add node_modules/.bin to PATH so tauri CLI subprocess can find the binary
+$webBinDir = Join-Path $PSScriptRoot 'apps\web\node_modules\.bin'
+$env:PATH = "$webBinDir;$env:PATH"
 
-    # Fix Gradle transforms cache atomic-move errors (Gradle #31438)
-    Write-Host '  [retry] Fixing Gradle cache...'
-    $gradleHome = $env:GRADLE_USER_HOME
-    if (-not $gradleHome) { $gradleHome = Join-Path $env:USERPROFILE '.gradle' }
-    $cachesDir = Join-Path $gradleHome 'caches'
-    if (Test-Path $cachesDir) {
-        Get-ChildItem $cachesDir -Directory | ForEach-Object {
-            foreach ($sub in @('transforms', 'kotlin-dsl\scripts')) {
-                $dir = Join-Path $_.FullName $sub
-                if (Test-Path $dir) {
-                    Get-ChildItem $dir -Directory |
-                        Where-Object { $_.Name -match '^[a-f0-9]{32}-.+' } |
-                        ForEach-Object {
-                            $hash = $_.Name.Substring(0, 32)
-                            $dest = Join-Path (Split-Path $dir) $hash
-                            if (-not (Test-Path $dest)) {
-                                Rename-Item $_.FullName $hash -ErrorAction SilentlyContinue
-                                Write-Host "    Fixed $hash"
-                            }
-                        }
-                }
-            }
-        }
-    }
-    Write-Host "  [build-retry] Attempt $attempt/$maxRetries failed, retrying..."
-}
+$tauriArgs = @('--filter', '@remake/web', 'exec', 'tauri', 'android', 'build')
+if ($BuildMode -eq 'debug') { $tauriArgs += '--debug' }
+if ($Arch -ne 'all') { $tauriArgs += '--target'; $tauriArgs += $targetMap[$Arch] }
+
+& pnpm @tauriArgs
+if ($LASTEXITCODE -ne 0) { Write-Error 'tauri android build failed.'; exit 1 }
+} # end Measure-BuildStep
 
 # ============================================================
 #  Collect artifacts
 # ============================================================
-Write-Host "`nBuild succeeded! APK output:" -ForegroundColor Green
+$totalSw.Stop()
+$totalElapsed = $totalSw.Elapsed.TotalSeconds
+Write-Host "`n============================================" -ForegroundColor Cyan
+Write-Host (" Build complete!  Total: {0:N1}s " -f $totalElapsed) -ForegroundColor Cyan
+Write-Host '============================================' -ForegroundColor Cyan
+foreach ($t in $script:timings) {
+    Write-Host ("  {0,-24} {1,7:N1}s" -f $t.Step, $t.Seconds) -ForegroundColor DarkGray
+}
 $outDir = Join-Path $PSScriptRoot 'dist'
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
 $apkDir = Join-Path $PSScriptRoot 'apps\web\src-tauri\gen\android\app\build\outputs\apk'
-Get-ChildItem $apkDir -Recurse -Filter '*.apk' | ForEach-Object {
-    Copy-Item $_.FullName $outDir -Force
-    Write-Host "  $($_.Name)"
+$modeDir = if ($BuildMode -eq 'debug') { 'debug' } else { 'release' }
+Get-ChildItem $apkDir -Recurse -Filter "*-${modeDir}.apk" |
+    ForEach-Object { Copy-Item $_.FullName $outDir -Force; Write-Host "  $($_.Name)" }
+if (-not (Get-ChildItem $outDir -Filter '*.apk' -ErrorAction SilentlyContinue)) {
+    Write-Warning 'No APK files found in output directory.'
 }
 exit 0

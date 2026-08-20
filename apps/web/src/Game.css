@@ -1,5 +1,6 @@
 .screen {
-    min-width: 32rem;
+    min-width: 0;
+    width: 100%;
     max-width: min(calc(100vw - 2rem), 48rem);
     position: relative;
     padding: 0;
